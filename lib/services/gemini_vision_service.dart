@@ -62,7 +62,8 @@ class GeminiVisionService {
     String? targetObject,
   }) async {
     if (_apiKey.isEmpty) {
-      return GuidanceResult(
+      return GuidanceResult.failed(
+        failure: ScanFailure.configuration,
         spokenText: 'Gemini API key is not configured. Please tap the Settings button or '
             'say your API key to activate visual guidance.',
         detailedDescription:
@@ -80,7 +81,8 @@ class GeminiVisionService {
     try {
       final text = await _generate(prompt, imageBytes);
       if (text == null || text.isEmpty) {
-        return GuidanceResult(
+        return GuidanceResult.failed(
+          failure: ScanFailure.engine,
           spokenText: 'No description returned. Please try again.',
           detailedDescription: 'Empty response from vision model.',
           engineUsed: 'Error',
@@ -108,10 +110,10 @@ class GeminiVisionService {
         }
       }
 
-      return GuidanceResult(
+      return GuidanceResult.failed(
+        failure: ScanFailure.engine,
         spokenText: _spokenErrorFor(errorMsg),
         detailedDescription: 'Error: $e',
-        isPathClear: false,
         engineUsed: 'Error',
       );
     }

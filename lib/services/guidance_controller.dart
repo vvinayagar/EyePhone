@@ -194,9 +194,9 @@ class GuidanceController extends ChangeNotifier with WidgetsBindingObserver {
       // imply a cloud fallback the user explicitly turned off.
       final text = '${localLlm.status.spokenDescription} '
           'Switch AI Engine Mode to Auto Hybrid in settings to use cloud vision.';
-      return GuidanceResult(
+      return GuidanceResult.failed(
+        failure: ScanFailure.onDeviceUnavailable,
         spokenText: text,
-        detailedDescription: text,
         engineUsed: 'On-Device Unavailable',
       );
     }
@@ -215,6 +215,10 @@ class GuidanceController extends ChangeNotifier with WidgetsBindingObserver {
   /// hundred milliseconds instead of waiting out a full sentence of TTS. Each category
   /// gets a distinct sound: hazard, person, and door must be tellable apart by ear alone.
   Future<void> _playFeedbackFor(GuidanceResult result) async {
+    // A failed scan saw nothing: no obstacle alarm, and no "clear" chime either. The
+    // spoken error that follows says what went wrong.
+    if (result.isError) return;
+
     final hazardous = !result.isPathClear || result.hazards.isNotEmpty;
 
     if (hazardous) {
@@ -262,10 +266,9 @@ class GuidanceController extends ChangeNotifier with WidgetsBindingObserver {
 
       if (imageBytes == null) {
         const errorText = 'Camera image could not be captured. Please ensure camera lens is not covered.';
-        _lastResult = GuidanceResult(
+        _lastResult = GuidanceResult.failed(
+          failure: ScanFailure.camera,
           spokenText: errorText,
-          detailedDescription: errorText,
-          isPathClear: false,
           engineUsed: 'Camera Error',
         );
         _isScanning = false;

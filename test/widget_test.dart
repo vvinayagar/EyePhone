@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'dart:typed_data';
 import 'package:image/image.dart' as img;
@@ -9,6 +10,7 @@ import 'package:eyephone/models/guidance_result.dart';
 import 'package:eyephone/models/vision_mode.dart';
 import 'package:eyephone/services/local_llm_service.dart';
 import 'package:eyephone/services/wake_word_matcher.dart';
+import 'package:eyephone/ui/widgets/hazard_badge.dart';
 import 'package:eyephone/utils/sound_generator.dart';
 
 void main() {
@@ -252,5 +254,36 @@ void main() {
     expect(ready.hasModelFile, true);
     expect(ready.modelSizeGb, closeTo(3.0, 0.01));
     expect(ready.shortLabel, contains('gemma-3n-E2B'));
+  });
+
+  testWidgets('Failed scans show a neutral error badge, never an obstacle', (tester) async {
+    final cameraError = GuidanceResult.failed(
+      failure: ScanFailure.camera,
+      spokenText: 'Camera image could not be captured.',
+      engineUsed: 'Camera Error',
+    );
+    expect(cameraError.isError, true);
+    // Nothing was seen, so nothing may be claimed clear either.
+    expect(cameraError.isPathClear, false);
+    expect(GuidanceResult.empty().isError, false);
+    expect(GuidanceResult.fromAiResponse('Path is clear ahead.').isError, false);
+
+    await tester.pumpWidget(MaterialApp(home: HazardBadge(result: cameraError)));
+    expect(find.text('CAMERA UNAVAILABLE'), findsOneWidget);
+    expect(find.text('OBSTACLE DETECTED'), findsNothing);
+
+    final engineError = GuidanceResult.failed(
+      failure: ScanFailure.engine,
+      spokenText: 'Network error.',
+      engineUsed: 'Error',
+    );
+    await tester.pumpWidget(MaterialApp(home: HazardBadge(result: engineError)));
+    expect(find.text('NO SCAN'), findsOneWidget);
+    expect(find.text('OBSTACLE DETECTED'), findsNothing);
+
+    // A real obstacle still shows as one.
+    final obstacle = GuidanceResult.fromAiResponse('Warning: chair obstacle at 2 o\'clock.');
+    await tester.pumpWidget(MaterialApp(home: HazardBadge(result: obstacle)));
+    expect(find.text('OBSTACLE DETECTED'), findsOneWidget);
   });
 }

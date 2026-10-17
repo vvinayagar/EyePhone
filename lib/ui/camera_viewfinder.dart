@@ -9,6 +9,10 @@ class CameraViewfinder extends StatelessWidget {
   final GuidanceResult guidanceResult;
   final bool isScanning;
 
+  /// Height kept free at the top for the "12h STRAIGHT AHEAD" label. Overlays placed
+  /// over the viewfinder (the hazard badge) start below this.
+  static const double topLabelReserve = 30;
+
   const CameraViewfinder({
     super.key,
     required this.cameraService,
@@ -38,7 +42,9 @@ class CameraViewfinder extends StatelessWidget {
           if (isScanning) _buildScanningAnimation(),
 
           // Directional Hazard Pointer (e.g. at 2 o'clock or 10 o'clock)
-          if (!guidanceResult.isPathClear && guidanceResult.clockDirection != null)
+          if (!guidanceResult.isError &&
+              !guidanceResult.isPathClear &&
+              guidanceResult.clockDirection != null)
             _buildDirectionalPointer(guidanceResult.clockDirection!),
         ],
       ),

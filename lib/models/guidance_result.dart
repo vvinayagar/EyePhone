@@ -8,6 +8,39 @@ enum DoorState {
   closed,
 }
 
+/// Why a scan produced no reading of the scene.
+///
+/// A failed scan says nothing about the path: it must never be shown or sounded as an
+/// obstacle (alarming, and false) nor as a clear path (dangerous, and false).
+enum ScanFailure {
+  /// No frame could be captured — lens covered, permission denied, camera dropped.
+  camera,
+
+  /// Cloud vision is not set up (no API key).
+  configuration,
+
+  /// The vision model failed: network down, quota, empty or unparseable response.
+  engine,
+
+  /// On-device only mode, but the local model cannot see images yet.
+  onDeviceUnavailable,
+}
+
+extension ScanFailureLabel on ScanFailure {
+  /// Short badge text. Says what went wrong, never what is (or is not) ahead.
+  String get badgeTitle {
+    switch (this) {
+      case ScanFailure.camera:
+        return 'CAMERA UNAVAILABLE';
+      case ScanFailure.configuration:
+        return 'SETUP NEEDED';
+      case ScanFailure.engine:
+      case ScanFailure.onDeviceUnavailable:
+        return 'NO SCAN';
+    }
+  }
+}
+
 class GuidanceResult {
   final String spokenText;
   final String detailedDescription;
@@ -26,6 +59,9 @@ class GuidanceResult {
   /// Door visibility and whether it must be opened.
   final DoorState doorState;
 
+  /// Set when the scan failed and nothing was seen. See [ScanFailure].
+  final ScanFailure? failure;
+
   GuidanceResult({
     required this.spokenText,
     required this.detailedDescription,
@@ -38,7 +74,30 @@ class GuidanceResult {
     this.engineUsed = 'Gemini Flash',
     this.personAhead = false,
     this.doorState = DoorState.none,
+    this.failure,
   }) : timestamp = timestamp ?? DateTime.now();
+
+  /// A scan that produced no reading of the scene.
+  ///
+  /// [isPathClear] is false because nothing was seen, so nothing may be assumed clear;
+  /// UI and cues must check [isError] first so this is not reported as an obstacle.
+  factory GuidanceResult.failed({
+    required ScanFailure failure,
+    required String spokenText,
+    String? detailedDescription,
+    required String engineUsed,
+  }) {
+    return GuidanceResult(
+      spokenText: spokenText,
+      detailedDescription: detailedDescription ?? spokenText,
+      isPathClear: false,
+      engineUsed: engineUsed,
+      failure: failure,
+    );
+  }
+
+  /// True when the scan failed and the result describes the failure, not the scene.
+  bool get isError => failure != null;
 
   /// True when the user must act on the door rather than walk through it.
   bool get doorNeedsOpening => doorState == DoorState.closed;

@@ -69,9 +69,10 @@ class HomeScreen extends StatelessWidget {
                               isScanning: isScanning,
                             ),
                           ),
-                          // Hazard / Clear Path Badge
+                          // Hazard / Clear Path Badge. Sits below the viewfinder's
+                          // "12h STRAIGHT AHEAD" label so neither covers the other.
                           Positioned(
-                            top: 14,
+                            top: CameraViewfinder.topLabelReserve,
                             left: 14,
                             right: 14,
                             child: Center(
@@ -159,7 +160,11 @@ class HomeScreen extends StatelessWidget {
           color: AppTheme.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: result.isPathClear ? AppTheme.safeGreen.withValues(alpha: 0.3) : AppTheme.dangerRed.withValues(alpha: 0.4),
+            color: result.isError
+                ? AppTheme.textDim.withValues(alpha: 0.4)
+                : result.isPathClear
+                    ? AppTheme.safeGreen.withValues(alpha: 0.3)
+                    : AppTheme.dangerRed.withValues(alpha: 0.4),
             width: 1.5,
           ),
         ),

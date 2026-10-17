@@ -1,9 +1,19 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import '../utils/sound_generator.dart';
 
 class AudioFeedbackService {
   final AudioPlayer _player = AudioPlayer();
   bool enabled = true;
+
+  /// Longest a cue may hold up the caller. Scans await their cues, so a cue that never
+  /// finishes preparing would freeze guidance on "Analyzing scene".
+  static const Duration _cueTimeout = Duration(seconds: 2);
+
+  /// Temp-file paths of tones already written, keyed by a hash of the WAV bytes.
+  final Map<int, String> _cueFiles = {};
 
   AudioFeedbackService({this.enabled = true}) {
     _player.setAudioContext(
@@ -36,7 +46,7 @@ class AudioFeedbackService {
         volume: 0.4,
         pan: 0.0,
       );
-      await _player.play(BytesSource(wav));
+      await _playWav(wav);
     } catch (_) {}
   }
 
@@ -50,7 +60,7 @@ class AudioFeedbackService {
         volume: 0.35,
         pan: 0.0,
       );
-      await _player.play(BytesSource(wav));
+      await _playWav(wav);
     } catch (_) {}
   }
 
@@ -75,7 +85,7 @@ class AudioFeedbackService {
         volume: 0.7,
         pan: pan,
       );
-      await _player.play(BytesSource(wav));
+      await _playWav(wav);
     } catch (_) {}
   }
 
@@ -95,7 +105,7 @@ class AudioFeedbackService {
           volume: 0.45,
           pan: pan,
         );
-        await _player.play(BytesSource(wav));
+        await _playWav(wav);
         await Future.delayed(const Duration(milliseconds: 160));
       }
     } catch (_) {}
@@ -116,7 +126,7 @@ class AudioFeedbackService {
           volume: 0.5,
           pan: pan,
         );
-        await _player.play(BytesSource(wav));
+        await _playWav(wav);
         await Future.delayed(const Duration(milliseconds: 150));
       }
     } catch (_) {}
@@ -140,7 +150,7 @@ class AudioFeedbackService {
         volume: 0.3,
         pan: 0.0,
       );
-      await _player.play(BytesSource(wav));
+      await _playWav(wav);
     } catch (_) {}
   }
 
@@ -153,8 +163,33 @@ class AudioFeedbackService {
         durationSeconds: 0.06,
         volume: 0.2,
       );
-      await _player.play(BytesSource(wav));
+      await _playWav(wav);
     } catch (_) {}
+  }
+
+  /// Plays a generated WAV.
+  ///
+  /// audioplayers cannot play in-memory audio on iOS or macOS (setSourceBytes is not
+  /// implemented there): it waits out its 30 s preparation timeout and then fails. So
+  /// outside the web, each tone is written once to a temp file and played from there.
+  Future<void> _playWav(Uint8List wav) async {
+    final Source source;
+    if (kIsWeb) {
+      source = BytesSource(wav, mimeType: 'audio/wav');
+    } else {
+      source = DeviceFileSource(await _cueFile(wav), mimeType: 'audio/wav');
+    }
+    await _player.play(source).timeout(_cueTimeout);
+  }
+
+  Future<String> _cueFile(Uint8List wav) async {
+    final key = Object.hashAll(wav);
+    final cached = _cueFiles[key];
+    if (cached != null && File(cached).existsSync()) return cached;
+    final path = '${Directory.systemTemp.path}/eyephone_cue_${key.toUnsigned(32)}.wav';
+    await File(path).writeAsBytes(wav, flush: true);
+    _cueFiles[key] = path;
+    return path;
   }
 
   void dispose() {

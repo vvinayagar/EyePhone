@@ -8,7 +8,10 @@ import 'package:eyephone/utils/fisheye_corrector.dart';
 import 'package:eyephone/models/app_settings.dart';
 import 'package:eyephone/models/guidance_result.dart';
 import 'package:eyephone/models/vision_mode.dart';
+import 'package:eyephone/services/gemini_vision_service.dart';
 import 'package:eyephone/services/local_llm_service.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:eyephone/services/wake_word_matcher.dart';
 import 'package:eyephone/ui/widgets/hazard_badge.dart';
 import 'package:eyephone/utils/sound_generator.dart';
@@ -285,5 +288,56 @@ void main() {
     final obstacle = GuidanceResult.fromAiResponse('Warning: chair obstacle at 2 o\'clock.');
     await tester.pumpWidget(MaterialApp(home: HazardBadge(result: obstacle)));
     expect(find.text('OBSTACLE DETECTED'), findsOneWidget);
+  });
+
+  test('Vision falls through to the next model when one is out of quota or overloaded', () async {
+    final requested = <String>[];
+    final client = MockClient((request) async {
+      final model = request.url.pathSegments.last.split(':').first;
+      requested.add(model);
+      if (model == 'gemini-3.5-flash') {
+        return http.Response('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"quota"}}', 429);
+      }
+      return http.Response(
+        '{"candidates":[{"content":{"parts":[{"text":"Path is clear for 5 meters."}]}}]}',
+        200,
+      );
+    });
+    final service = GeminiVisionService(apiKey: 'test-key', client: client);
+
+    final result = await service.analyzeImage(
+      imageBytes: Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+      mode: VisionMode.navigation,
+    );
+
+    expect(requested, ['gemini-3.5-flash', 'gemini-3.1-flash-lite']);
+    expect(service.activeModelName, 'gemini-3.1-flash-lite');
+    expect(result.spokenText, contains('clear'));
+
+    // The spent model is not retried on the next scan.
+    requested.clear();
+    await service.analyzeImage(
+      imageBytes: Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+      mode: VisionMode.navigation,
+    );
+    expect(requested, ['gemini-3.1-flash-lite']);
+  });
+
+  test('Vision reports quota only after every model has failed', () async {
+    final requested = <String>[];
+    final client = MockClient((request) async {
+      requested.add(request.url.pathSegments.last.split(':').first);
+      return http.Response('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}', 429);
+    });
+    final service = GeminiVisionService(apiKey: 'test-key', client: client);
+
+    final result = await service.analyzeImage(
+      imageBytes: Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]),
+      mode: VisionMode.navigation,
+    );
+
+    expect(requested.toSet(), GeminiVisionService.fallbackModels.toSet());
+    expect(requested.length, GeminiVisionService.fallbackModels.length);
+    expect(result.spokenText, contains('quota'));
   });
 }

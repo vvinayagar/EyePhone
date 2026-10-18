@@ -89,7 +89,14 @@ class HazardBadge extends StatelessWidget {
     final IconData icon;
     final String title;
 
-    if (!isClear) {
+    if (result.isError) {
+      // Neutral, not red: a failed scan is a problem with the app, not a hazard ahead.
+      color = AppTheme.textDim;
+      icon = result.failure == ScanFailure.camera
+          ? Icons.no_photography_rounded
+          : Icons.cloud_off_rounded;
+      title = result.failure!.badgeTitle;
+    } else if (!isClear) {
       color = AppTheme.dangerRed;
       icon = Icons.warning_amber_rounded;
       title = 'OBSTACLE DETECTED';
@@ -134,7 +141,7 @@ class HazardBadge extends StatelessWidget {
                 letterSpacing: 0.5,
               ),
             ),
-            if (result.clockDirection != null) ...[
+            if (!result.isError && result.clockDirection != null) ...[
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

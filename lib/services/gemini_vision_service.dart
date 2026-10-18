@@ -60,9 +60,27 @@ class GeminiVisionService {
     required VisionMode mode,
     String? customQuestion,
     String? targetObject,
+  }) {
+    return _analyzeWithFallback(
+      imageBytes: imageBytes,
+      mode: mode,
+      customQuestion: customQuestion,
+      targetObject: targetObject,
+      tried: {},
+    );
+  }
+
+  /// One attempt per model; [tried] stops a scan from cycling between models.
+  Future<GuidanceResult> _analyzeWithFallback({
+    required Uint8List imageBytes,
+    required VisionMode mode,
+    String? customQuestion,
+    String? targetObject,
+    required Set<String> tried,
   }) async {
     if (_apiKey.isEmpty) {
-      return GuidanceResult(
+      return GuidanceResult.failed(
+        failure: ScanFailure.configuration,
         spokenText: 'Gemini API key is not configured. Please tap the Settings button or '
             'say your API key to activate visual guidance.',
         detailedDescription:
@@ -80,7 +98,8 @@ class GeminiVisionService {
     try {
       final text = await _generate(prompt, imageBytes);
       if (text == null || text.isEmpty) {
-        return GuidanceResult(
+        return GuidanceResult.failed(
+          failure: ScanFailure.engine,
           spokenText: 'No description returned. Please try again.',
           detailedDescription: 'Empty response from vision model.',
           engineUsed: 'Error',
@@ -91,27 +110,33 @@ class GeminiVisionService {
       debugPrint('Gemini vision API error: $e');
       final errorMsg = e.toString();
 
-      // A retired or unavailable model is not a network problem. Switch to the next
-      // known-good model and retry once, rather than telling the user to check WiFi.
-      if (_isModelUnavailable(errorMsg)) {
-        final next = _nextUsableModel();
+      // A retired model, an exhausted quota or an overloaded model is not a network
+      // problem, and another model on the same key often still answers. Try the next
+      // one rather than leaving the user without guidance.
+      final overloaded = _isOverloaded(errorMsg);
+      if (_isModelUnavailable(errorMsg) || _isQuotaExceeded(errorMsg) || overloaded) {
+        tried.add(_modelName);
+        // Overload passes in seconds; a retired model or a spent quota will not recover
+        // this session, so stop sending scans there.
+        if (!overloaded) _rejectedModels.add(_modelName);
+        final next = _nextUsableModel(exclude: tried);
         if (next != null) {
-          debugPrint('Model $_modelName unavailable; switching to $next');
-          _rejectedModels.add(_modelName);
+          debugPrint('Model $_modelName failed ($errorMsg); switching to $next');
           _modelName = next;
-          return analyzeImage(
+          return _analyzeWithFallback(
             imageBytes: imageBytes,
             mode: mode,
             customQuestion: customQuestion,
             targetObject: targetObject,
+            tried: tried,
           );
         }
       }
 
-      return GuidanceResult(
+      return GuidanceResult.failed(
+        failure: ScanFailure.engine,
         spokenText: _spokenErrorFor(errorMsg),
         detailedDescription: 'Error: $e',
-        isPathClear: false,
         engineUsed: 'Error',
       );
     }
@@ -216,9 +241,21 @@ Keep under 25 words.
         m.contains('not supported for generatecontent');
   }
 
-  String? _nextUsableModel() {
+  bool _isQuotaExceeded(String errorMsg) {
+    final m = errorMsg.toLowerCase();
+    return m.contains('http 429') || m.contains('resource_exhausted') || m.contains('quota');
+  }
+
+  bool _isOverloaded(String errorMsg) {
+    final m = errorMsg.toLowerCase();
+    return m.contains('http 503') || m.contains('unavailable') || m.contains('high demand');
+  }
+
+  String? _nextUsableModel({Set<String> exclude = const {}}) {
     for (final candidate in fallbackModels) {
-      if (candidate != _modelName && !_rejectedModels.contains(candidate)) {
+      if (candidate != _modelName &&
+          !_rejectedModels.contains(candidate) &&
+          !exclude.contains(candidate)) {
         return candidate;
       }
     }
